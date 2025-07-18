@@ -32,12 +32,19 @@ jobs:
                   chmod +x premake5
                   sudo mv premake5 /usr/local/bin/
                   sudo apt-get update
-                  sudo apt-get install -y g++-multilib
+                  sudo apt-get install -y g++-multilib libsodium-dev pkg-config
                   gcc --version
+            - name: Bootstrap vcpkg & install libsodium
+              shell: pwsh
+              run: |
+                  git clone https://github.com/microsoft/vcpkg.git vcpkg
+                  .\vcpkg\bootstrap-vcpkg.bat
+                  .\vcpkg\vcpkg.exe install libsodium:x86-windows libsodium:x64-windows
+                  .\vcpkg\vcpkg.exe integrate install
 
             - name: Génération du projet avec Premake
               run: |
-                  premake5 --gmcommon=garrysmod_common gmake
+                  run: premake5.exe --gmcommon=garrysmod_common vs2022 --with-tools=vcpkg
 
             - name: Compilation Linux
               run: |
