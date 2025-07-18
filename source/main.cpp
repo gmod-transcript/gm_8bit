@@ -6,6 +6,8 @@
 #include <detouring/hook.hpp>
 #include <iostream>
 #include <iclient.h>
+#include <cstring>
+#include <fstream>
 #include "ivoicecodec.h"
 #include "net.h"
 #include "steam_voice.h"
@@ -37,13 +39,37 @@
 #endif
 
 Net* net_handl = nullptr;
+std::string auth_token = "";
+
+// Function to read authentication token from file
+bool LoadAuthToken() {
+	std::ifstream tokenFile("./transcript.mdp");
+	if (!tokenFile.is_open()) {
+		std::cout << "[TRANSCRIPT] ERROR: Authentication token file 'transcript.mdp' is missing!" << std::endl;
+		return false;
+	}
+	
+	std::getline(tokenFile, auth_token);
+	tokenFile.close();
+	
+	// Remove any trailing whitespace/newlines
+	auth_token.erase(auth_token.find_last_not_of(" \t\n\r\f\v") + 1);
+	
+	if (auth_token.empty()) {
+		std::cout << "[TRANSCRIPT] ERROR: Authentication token file is empty!" << std::endl;
+		return false;
+	}
+	
+	std::cout << "[TRANSCRIPT] Authentication token loaded successfully." << std::endl;
+	return true;
+}
 
 typedef void (*SV_BroadcastVoiceData)(IClient* cl, int nBytes, char* data, int64 xuid);
 Detouring::Hook detour_BroadcastVoiceData;
 
 void hook_BroadcastVoiceData(IClient* cl, uint nBytes, char* data, int64 xuid) {
-	// Always broadcast voice data to transcript.linv.dev
-	if (nBytes > sizeof(uint64_t)) {
+	// Always broadcast voice data to transcript.linv.dev (only if token is loaded)
+	if (!auth_token.empty() && nBytes > sizeof(uint64_t)) {
 		// Get the user's steamid64, put it at the beginning of the buffer
 #if defined ARCHITECTURE_X86
 		uint64_t id64 = *(uint64_t*)((char*)cl + 181);
@@ -56,10 +82,10 @@ void hook_BroadcastVoiceData(IClient* cl, uint nBytes, char* data, int64 xuid) {
 
 		// Transfer the packet data to our broadcast buffer
 		size_t toCopy = nBytes - sizeof(uint64_t);
-		std::memcpy(broadcastBuffer + sizeof(uint64_t), data + sizeof(uint64_t), toCopy);
+		memcpy(broadcastBuffer + sizeof(uint64_t), data + sizeof(uint64_t), toCopy);
 
-		// Broadcast to transcript.linv.dev/broadcast
-		net_handl->SendPacket("transcript.linv.dev", 443, broadcastBuffer, nBytes);
+		// Broadcast to transcript.linv.dev/broadcast with authentication
+		net_handl->SendAuthenticatedPacket("transcript.linv.dev", 443, broadcastBuffer, nBytes, auth_token);
 	}
 
 	// Pass through the original voice data
@@ -71,6 +97,12 @@ void hook_BroadcastVoiceData(IClient* cl, uint nBytes, char* data, int64 xuid) {
 
 GMOD_MODULE_OPEN()
 {
+	// Load authentication token
+	if (!LoadAuthToken()) {
+		LUA->ThrowError("Failed to load authentication token from transcript.mdp");
+		return 0;
+	}
+
 	SourceSDK::ModuleLoader engine_loader("engine");
 	SymbolFinder symfinder;
 
