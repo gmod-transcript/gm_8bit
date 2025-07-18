@@ -27,11 +27,12 @@ jobs:
 
             - name: Install Premake & dépendances
               run: |
+                  sudo dpkg --add-architecture i386
+                  sudo apt-get update
                   wget https://github.com/premake/premake-core/releases/download/v5.0.0-beta2/premake-5.0.0-beta2-linux.tar.gz -O premake.tar.gz
                   tar -xzf premake.tar.gz
                   chmod +x premake5
                   sudo mv premake5 /usr/local/bin/
-                  sudo apt-get update
                   sudo apt-get install -y g++-multilib pkg-config libsodium-dev libsodium-dev:i386
                   gcc --version
 
@@ -41,18 +42,22 @@ jobs:
 
             - name: Patch gmake pour lier libsodium
               run: |
-                  sed -i '/^links %.*/ s/$$/, "sodium"/' projects/linux/gmake/gmsv_transcript.make
+                  sed -i '/^links *{.*}/ s/}/, "sodium" }/' projects/linux/gmake/gmsv_transcript.make
 
-            - name: Compilation Linux
+            - name: Compilation Linux 32‑bit
               run: |
                   cd projects/linux/gmake
-                  make
+                  make config=releasewithsymbols_x86
+
+            - name: Compilation Linux 64‑bit
+              run: |
+                  cd projects/linux/gmake
                   make config=releasewithsymbols_x86_64
 
             - name: Upload artifact Linux x86
               uses: actions/upload-artifact@v4
               with:
-                  name: gmsv_transcript_linux.dll
+                  name: gmsv_transcript_linux32.dll
                   path: projects/linux/gmake/x86/ReleaseWithSymbols/gmsv_transcript_linux.dll
 
             - name: Upload artifact Linux x86_64
