@@ -6,11 +6,8 @@
 #include <detouring/hook.hpp>
 #include <iostream>
 #include <iclient.h>
-#include <unordered_map>
 #include "ivoicecodec.h"
-#include "audio_effects.h"
 #include "net.h"
-#include "thirdparty.h"
 #include "steam_voice.h"
 #include "transcript_state.h"
 #include <GarrysMod/Symbol.hpp>
@@ -40,9 +37,6 @@
 	};
 #endif
 
-static char decompressedBuffer[20 * 1024];
-static char recompressBuffer[20 * 1024];
-
 Net* net_handl = nullptr;
 transcriptState* g_transcript = nullptr;
 
@@ -50,148 +44,11 @@ typedef void (*SV_BroadcastVoiceData)(IClient* cl, int nBytes, char* data, int64
 Detouring::Hook detour_BroadcastVoiceData;
 
 void hook_BroadcastVoiceData(IClient* cl, uint nBytes, char* data, int64 xuid) {
-	//Check if the player is in the set of enabled players.
-	//This is (and needs to be) and O(1) operation for how often this function is called.
-	//If not in the set, just hit the trampoline to ensure default behavior.
-	int uid = cl->GetUserID();
-
-#ifdef THIRDPARTY_LINK
-	if(checkIfMuted(cl->GetPlayerSlot()+1)) {
-		return detour_BroadcastVoiceData.GetTrampoline<SV_BroadcastVoiceData>()(cl, nBytes, data, xuid);
-	}
-#endif
-
-	auto& afflicted_players = g_transcript->afflictedPlayers;
-	if (g_transcript->broadcastPackets && nBytes > sizeof(uint64_t)) {
-		//Get the user's steamid64, put it at the beginning of the buffer.
-		//Notice that we don't use the conveniently provided one in the voice packet. The client can manipulate that one.
-
-#if defined ARCHITECTURE_X86
-		uint64_t id64 = *(uint64_t*)((char*)cl + 181);
-#else
-		uint64_t id64 = *(uint64_t*)((char*)cl + 189);
-#endif
-
-		*(uint64_t*)decompressedBuffer = id64;
-
-		//Transfer the packet data to our scratch buffer
-		//This looks jank, but it's to prevent a theoretically malformed packet triggering a massive memcpy
-		size_t toCopy = nBytes - sizeof(uint64_t);
-		std::memcpy(decompressedBuffer + sizeof(uint64_t), data + sizeof(uint64_t), toCopy);
-
-		//Finally we'll broadcast our new packet
- 		net_handl->SendPacket(g_transcript->ip.c_str(), g_transcript->port, decompressedBuffer, nBytes);
-	}
-
-	if (afflicted_players.find(uid) != afflicted_players.end()) {
-		IVoiceCodec* codec = std::get<0>(afflicted_players.at(uid));
-
-		if(nBytes < STEAM_PCKT_SZ) {
-			return detour_BroadcastVoiceData.GetTrampoline<SV_BroadcastVoiceData>()(cl, nBytes, data, xuid);
-		}
-
-		int bytesDecompressed = SteamVoice::DecompressIntoBuffer(codec, data, nBytes, decompressedBuffer, sizeof(decompressedBuffer));
-		int samples = bytesDecompressed / 2;
-		if (bytesDecompressed <= 0) {
-			//Just hit the trampoline at this point.
-			return detour_BroadcastVoiceData.GetTrampoline<SV_BroadcastVoiceData>()(cl, nBytes, data, xuid);
-		}
-
-		#ifdef _DEBUG
-			std::cout << "Decompressed samples " << samples << std::endl;
-		#endif
-
-		//Apply audio effect
-		int eff = std::get<1>(afflicted_players.at(uid));
-		switch (eff) {
-		case AudioEffects::EFF_BITCRUSH:
-			AudioEffects::BitCrush((uint16_t*)&decompressedBuffer, samples, g_transcript->crushFactor, g_transcript->gainFactor);
-			break;
-		case AudioEffects::EFF_DESAMPLE:
-			AudioEffects::Desample((uint16_t*)&decompressedBuffer, samples, g_transcript->desampleRate);
-			break;
-		default:
-			break;
-		}
-
-		//Recompress the stream
-		uint64_t steamid = *(uint64_t*)data;
-		int bytesWritten = SteamVoice::CompressIntoBuffer(steamid, codec, decompressedBuffer, samples*2, recompressBuffer, sizeof(recompressBuffer), 24000);
-		if (bytesWritten <= 0) {
-			return detour_BroadcastVoiceData.GetTrampoline<SV_BroadcastVoiceData>()(cl, nBytes, data, xuid);
-		}
-
-		#ifdef _DEBUG
-			std::cout << "Retransmitted pckt size: " << bytesWritten << std::endl;
-		#endif
-
-		//Broadcast voice data with our updated compressed data.
-		return detour_BroadcastVoiceData.GetTrampoline<SV_BroadcastVoiceData>()(cl, bytesWritten, recompressBuffer, xuid);
-	}
-	else {
-		return detour_BroadcastVoiceData.GetTrampoline<SV_BroadcastVoiceData>()(cl, nBytes, data, xuid);
-	}
+	// Just pass through all voice data without modification
+	return detour_BroadcastVoiceData.GetTrampoline<SV_BroadcastVoiceData>()(cl, nBytes, data, xuid);
 }
 
-LUA_FUNCTION_STATIC(transcript_crush) {
-	g_transcript->crushFactor = (int)LUA->GetNumber(1);
-	return 0;
-}
 
-LUA_FUNCTION_STATIC(transcript_gain) {
-	g_transcript->gainFactor = (float)LUA->GetNumber(1);
-	return 0;
-}
-
-LUA_FUNCTION_STATIC(transcript_setbroadcastip) {
-	g_transcript->ip = std::string(LUA->GetString());
-	return 0;
-}
-
-LUA_FUNCTION_STATIC(transcript_setbroadcastport) {
-	g_transcript->port = (uint16_t)LUA->GetNumber(1);
-	return 0;
-}
-
-LUA_FUNCTION_STATIC(transcript_broadcast) {
-	g_transcript->broadcastPackets = LUA->GetBool(1);
-	return 0;
-}
-
-LUA_FUNCTION_STATIC(transcript_getcrush) {
-	LUA->PushNumber(g_transcript->crushFactor);
-	return 1;
-}
-
-LUA_FUNCTION_STATIC(transcript_setdesamplerate) {
-	g_transcript->desampleRate = (int)LUA->GetNumber(1);
-	return 0;
-}
-
-LUA_FUNCTION_STATIC(transcript_enableEffect) {
-	int id = LUA->GetNumber(1);
-	int eff = LUA->GetNumber(2);
-
-	auto& afflicted_players = g_transcript->afflictedPlayers;
-	if (afflicted_players.find(id) != afflicted_players.end()) {
-		if (eff == AudioEffects::EFF_NONE) {
-			IVoiceCodec* codec = std::get<0>(afflicted_players.at(id));
-			delete codec;
-			afflicted_players.erase(id);
-		}
-		else {
-			std::get<1>(afflicted_players.at(id)) = eff;
-		}
-		return 0;
-	}
-	else if(eff != AudioEffects::EFF_NONE) {
-
-		IVoiceCodec* codec = new SteamOpus::Opus_FrameDecoder();
-		codec->Init(5, 24000);
-		afflicted_players.insert(std::pair<int, std::tuple<IVoiceCodec*, int>>(id, std::tuple<IVoiceCodec*, int>(codec, eff)));
-	}
-	return 0;
-}
 
 
 GMOD_MODULE_OPEN()
@@ -221,57 +78,10 @@ GMOD_MODULE_OPEN()
 
 	LUA->PushString("transcript");
 	LUA->CreateTable();
-		LUA->PushString("SetCrushFactor");
-		LUA->PushCFunction(transcript_crush);
-		LUA->SetTable(-3);
-
-		LUA->PushString("GetCrushFactor");
-		LUA->PushCFunction(transcript_getcrush);
-		LUA->SetTable(-3);
-
-		LUA->PushString("EnableEffect");
-		LUA->PushCFunction(transcript_enableEffect);
-		LUA->SetTable(-3);
-
-		LUA->PushString("EnableBroadcast");
-		LUA->PushCFunction(transcript_broadcast);
-		LUA->SetTable(-3);
-
-		LUA->PushString("SetGainFactor");
-		LUA->PushCFunction(transcript_gain);
-		LUA->SetTable(-3);
-
-		LUA->PushString("SetDesampleRate");
-		LUA->PushCFunction(transcript_setdesamplerate);
-		LUA->SetTable(-3);
-
-		LUA->PushString("SetBroadcastIP");
-		LUA->PushCFunction(transcript_setbroadcastip);
-		LUA->SetTable(-3);
-
-		LUA->PushString("SetBroadcastPort");
-		LUA->PushCFunction(transcript_setbroadcastport);
-		LUA->SetTable(-3);
-
-		LUA->PushString("EFF_NONE");
-		LUA->PushNumber(AudioEffects::EFF_NONE);
-		LUA->SetTable(-3);
-
-		LUA->PushString("EFF_DESAMPLE");
-		LUA->PushNumber(AudioEffects::EFF_DESAMPLE);
-		LUA->SetTable(-3);
-
-		LUA->PushString("EFF_BITCRUSH");
-		LUA->PushNumber(AudioEffects::EFF_BITCRUSH);
-		LUA->SetTable(-3);
 	LUA->SetTable(-3);
 	LUA->Pop();
 
 	net_handl = new Net();
-
-#ifdef THIRDPARTY_LINK
-	linkMutedFunc();
-#endif
 
 	return 0;
 }
@@ -280,13 +90,6 @@ GMOD_MODULE_CLOSE()
 {
 	detour_BroadcastVoiceData.Disable();
 	detour_BroadcastVoiceData.Destroy();
-
-	for (auto& p : g_transcript->afflictedPlayers) {
-		IVoiceCodec* codec = std::get<0>(p.second);
-		if (codec != nullptr) {
-			delete codec;
-		}
-	}
 
 	delete net_handl;
 	delete g_transcript;
