@@ -37,11 +37,8 @@ jobs:
 
             - name: Génération du projet avec Premake
               run: |
-                  premake5 --gmcommon=garrysmod_common gmake
-
-            - name: Patch gmake to link libsodium
-              run: |
-                  sed -i '/links *{/ s/}/, "sodium" }/' projects/linux/gmake/gmsv_transcript.make
+                  make LDFLAGS="-lsodium"
+                  make config=releasewithsymbols_x86_64 LDFLAGS="-lsodium"
 
             - name: Compilation Linux
               run: |
