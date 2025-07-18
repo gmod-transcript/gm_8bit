@@ -77,7 +77,7 @@ void Net::SendPacket(const char* dest, uint16_t port, const char* buffer, uint32
     // Envoi du buffer chiffré
     sendto(
         m_socket,
-        cipher.data(),
+        reinterpret_cast<const char*>(cipher.data()),
         static_cast<int>(cipher_len),
         0,
         reinterpret_cast<sockaddr*>(&dest_str),
