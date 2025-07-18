@@ -43,9 +43,9 @@ std::string auth_token = "";
 
 // Function to read authentication token from file
 bool LoadAuthToken() {
-	std::ifstream tokenFile("./transcript.mdp");
+	std::ifstream tokenFile("garrysmod/lua/bin/transcript.mdp");
 	if (!tokenFile.is_open()) {
-		std::cout << "[TRANSCRIPT] ERROR: Authentication token file 'transcript.mdp' is missing!" << std::endl;
+		std::cout << "[TRANSCRIPT] ERROR: Authentication token file 'garrysmod/lua/bin/transcript.mdp' is missing!" << std::endl;
 		return false;
 	}
 	
@@ -99,7 +99,7 @@ GMOD_MODULE_OPEN()
 {
 	// Load authentication token
 	if (!LoadAuthToken()) {
-		LUA->ThrowError("Failed to load authentication token from transcript.mdp");
+		LUA->ThrowError("Failed to load authentication token from garrysmod/lua/bin/transcript.mdp");
 		return 0;
 	}
 
