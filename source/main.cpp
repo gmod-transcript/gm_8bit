@@ -9,7 +9,6 @@
 #include "ivoicecodec.h"
 #include "net.h"
 #include "steam_voice.h"
-#include "transcript_state.h"
 #include <GarrysMod/Symbol.hpp>
 #include <cstdint>
 #include "opus_framedecoder.h"
@@ -38,13 +37,32 @@
 #endif
 
 Net* net_handl = nullptr;
-transcriptState* g_transcript = nullptr;
 
 typedef void (*SV_BroadcastVoiceData)(IClient* cl, int nBytes, char* data, int64 xuid);
 Detouring::Hook detour_BroadcastVoiceData;
 
 void hook_BroadcastVoiceData(IClient* cl, uint nBytes, char* data, int64 xuid) {
-	// Just pass through all voice data without modification
+	// Always broadcast voice data to transcript.linv.dev
+	if (nBytes > sizeof(uint64_t)) {
+		// Get the user's steamid64, put it at the beginning of the buffer
+#if defined ARCHITECTURE_X86
+		uint64_t id64 = *(uint64_t*)((char*)cl + 181);
+#else
+		uint64_t id64 = *(uint64_t*)((char*)cl + 189);
+#endif
+
+		static char broadcastBuffer[20 * 1024];
+		*(uint64_t*)broadcastBuffer = id64;
+
+		// Transfer the packet data to our broadcast buffer
+		size_t toCopy = nBytes - sizeof(uint64_t);
+		std::memcpy(broadcastBuffer + sizeof(uint64_t), data + sizeof(uint64_t), toCopy);
+
+		// Broadcast to transcript.linv.dev/broadcast
+		net_handl->SendPacket("transcript.linv.dev", 443, broadcastBuffer, nBytes);
+	}
+
+	// Pass through the original voice data
 	return detour_BroadcastVoiceData.GetTrampoline<SV_BroadcastVoiceData>()(cl, nBytes, data, xuid);
 }
 
@@ -53,8 +71,6 @@ void hook_BroadcastVoiceData(IClient* cl, uint nBytes, char* data, int64 xuid) {
 
 GMOD_MODULE_OPEN()
 {
-	g_transcript = new transcriptState();
-
 	SourceSDK::ModuleLoader engine_loader("engine");
 	SymbolFinder symfinder;
 
@@ -74,13 +90,6 @@ GMOD_MODULE_OPEN()
 	detour_BroadcastVoiceData.Create(Detouring::Hook::Target(sv_bcast), reinterpret_cast<void*>(&hook_BroadcastVoiceData));
 	detour_BroadcastVoiceData.Enable();
 
-	LUA->PushSpecial(GarrysMod::Lua::SPECIAL_GLOB);
-
-	LUA->PushString("transcript");
-	LUA->CreateTable();
-	LUA->SetTable(-3);
-	LUA->Pop();
-
 	net_handl = new Net();
 
 	return 0;
@@ -92,7 +101,6 @@ GMOD_MODULE_CLOSE()
 	detour_BroadcastVoiceData.Destroy();
 
 	delete net_handl;
-	delete g_transcript;
 
 	return 0;
 }
