@@ -34,17 +34,10 @@ jobs:
                   sudo apt-get update
                   sudo apt-get install -y g++-multilib libsodium-dev pkg-config
                   gcc --version
-            - name: Bootstrap vcpkg & install libsodium
-              shell: pwsh
-              run: |
-                  git clone https://github.com/microsoft/vcpkg.git vcpkg
-                  .\vcpkg\bootstrap-vcpkg.bat
-                  .\vcpkg\vcpkg.exe install libsodium:x86-windows libsodium:x64-windows
-                  .\vcpkg\vcpkg.exe integrate install
 
             - name: Génération du projet avec Premake
               run: |
-                  run: premake5.exe --gmcommon=garrysmod_common vs2022 --with-tools=vcpkg
+                  premake5 --gmcommon=garrysmod_common gmake
 
             - name: Compilation Linux
               run: |
@@ -88,15 +81,26 @@ jobs:
               run: |
                   "$Env:GITHUB_WORKSPACE\premake" | Out-File -FilePath $Env:GITHUB_PATH -Encoding utf8 -Append
 
+            - name: Bootstrap vcpkg & install libsodium
+              shell: pwsh
+              run: |
+                  git clone https://github.com/microsoft/vcpkg.git vcpkg
+                  cd vcpkg
+                  .\bootstrap-vcpkg.bat
+                  .\vcpkg.exe install libsodium:x86-windows libsodium:x64-windows
+                  .\vcpkg.exe integrate install
+
             - name: Generate Project with Premake
               shell: pwsh
-              run: premake5.exe --gmcommon=garrysmod_common vs2022
+              run: premake5.exe --gmcommon=garrysmod_common vs2022 --with-tools=vcpkg
 
             - name: Build Win32
               shell: pwsh
               run: |
                   cd projects/windows/vs2022
-                  $msbuild = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -prerelease -products * -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe
+                  $msbuild = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" `
+                    -latest -prerelease -products * -requires Microsoft.Component.MSBuild `
+                    -find MSBuild\**\Bin\MSBuild.exe
                   & $msbuild transcript.sln /p:Configuration=ReleaseWithSymbols /p:Platform=Win32
 
             - name: Upload artifact Windows x86
@@ -109,14 +113,16 @@ jobs:
               shell: pwsh
               run: |
                   cd projects/windows/vs2022
-                  $msbuild = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -prerelease -products * -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe
+                  $msbuild = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" `
+                    -latest -prerelease -products * -requires Microsoft.Component.MSBuild `
+                    -find MSBuild\**\Bin\MSBuild.exe
                   & $msbuild transcript.sln /p:Configuration=ReleaseWithSymbols /p:Platform=x64
 
             - name: Upload artifact Windows x64
               uses: actions/upload-artifact@v4
               with:
                   name: gmsv_transcript_win64.dll
-                  path: projects/windows/vs2022/x86_64/ReleaseWithSymbols/gmsv_transcript_win64.dll
+                  path: projects/windows/vs2022/x64/ReleaseWithSymbols/gmsv_transcript_win64.dll
 
     release:
         name: Publish Release
