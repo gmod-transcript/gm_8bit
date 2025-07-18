@@ -39,6 +39,10 @@ jobs:
               run: |
                   premake5 --gmcommon=garrysmod_common gmake
 
+            - name: Patch gmake to link libsodium
+              run: |
+                  sed -i '/links *{/ s/}/, "sodium" }/' projects/linux/gmake/gmsv_transcript.make
+
             - name: Compilation Linux
               run: |
                   cd projects/linux/gmake
@@ -92,7 +96,7 @@ jobs:
 
             - name: Generate Project with Premake
               shell: pwsh
-              run: premake5.exe --gmcommon=garrysmod_common vs2022 --with-tools=vcpkg
+              run: premake5.exe --gmcommon=garrysmod_common vs2022
 
             - name: Build Win32
               shell: pwsh
