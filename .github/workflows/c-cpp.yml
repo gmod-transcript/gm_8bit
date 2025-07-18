@@ -32,13 +32,12 @@ jobs:
                   chmod +x premake5
                   sudo mv premake5 /usr/local/bin/
                   sudo apt-get update
-                  sudo apt-get install -y g++-multilib libsodium-dev pkg-config
+                  sudo apt-get install -y g++-multilib pkg-config libsodium-dev libsodium-dev:i386
                   gcc --version
 
             - name: Génération du projet avec Premake
               run: |
-                  make LDFLAGS="-lsodium"
-                  make config=releasewithsymbols_x86_64 LDFLAGS="-lsodium"
+                  premake5 --gmcommon=garrysmod_common gmake
 
             - name: Patch gmake pour lier libsodium
               run: |
