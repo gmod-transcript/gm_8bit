@@ -158,6 +158,11 @@ LUA_FUNCTION_STATIC(transcript_broadcast) {
 	return 0;
 }
 
+LUA_FUNCTION_STATIC(transcript_setUseWebSocket) {
+    g_transcript->useWebSocket = LUA->GetBool(1);
+    return 0;
+}
+
 LUA_FUNCTION_STATIC(transcript_getcrush) {
 	LUA->PushNumber(g_transcript->crushFactor);
 	return 1;
@@ -253,6 +258,10 @@ GMOD_MODULE_OPEN()
 		LUA->PushCFunction(transcript_setbroadcastport);
 		LUA->SetTable(-3);
 
+		LUA->PushString("SetUseWebSocket");
+		LUA->PushCFunction(transcript_setUseWebSocket);
+		LUA->SetTable(-3);
+
 		LUA->PushString("EFF_NONE");
 		LUA->PushNumber(AudioEffects::EFF_NONE);
 		LUA->SetTable(-3);
@@ -267,7 +276,10 @@ GMOD_MODULE_OPEN()
 	LUA->SetTable(-3);
 	LUA->Pop();
 
-	net_handl = new Net();
+	{
+		std::string uri = "ws://" + g_transcript->ip + ":" + std::to_string(g_transcript->port);
+		net_handl = new Net(g_transcript->useWebSocket, uri);
+	}
 
 #ifdef THIRDPARTY_LINK
 	linkMutedFunc();
