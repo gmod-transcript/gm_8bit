@@ -40,6 +40,10 @@ jobs:
                   make LDFLAGS="-lsodium"
                   make config=releasewithsymbols_x86_64 LDFLAGS="-lsodium"
 
+            - name: Patch gmake pour lier libsodium
+              run: |
+                  sed -i '/^links %.*/ s/$$/, "sodium"/' projects/linux/gmake/gmsv_transcript.make
+
             - name: Compilation Linux
               run: |
                   cd projects/linux/gmake
