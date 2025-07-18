@@ -1,5 +1,6 @@
 // net.cpp
 #include "net.h"
+#include <stdexcept>
 #ifdef USE_WEBSOCKET
 # include <websocketpp/common/thread.hpp>
 # include <websocketpp/common/memory.hpp>
